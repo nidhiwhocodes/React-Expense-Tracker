@@ -11,6 +11,14 @@ function Welcome() {
   const [loading, setLoading] = useState(true);
   const [sendingEmail, setSendingEmail] = useState(false);
 
+  // Logout
+  const logoutHandler = () => {
+    localStorage.removeItem("token");
+    localStorage.removeItem("email");
+
+    navigate("/login");
+  };
+
   // Get user information from Firebase
   useEffect(() => {
     const getProfile = async () => {
@@ -54,7 +62,6 @@ function Welcome() {
 
         // Email verification status
         setEmailVerified(user?.emailVerified === true);
-
       } catch (error) {
         console.error("Profile error:", error);
 
@@ -104,8 +111,6 @@ function Welcome() {
 
       const data = await response.json();
 
-      console.log("Verification response:", data);
-
       if (!response.ok) {
         throw new Error(data.error?.message || "Unable to send email");
       }
@@ -113,7 +118,6 @@ function Welcome() {
       alert(
         `Verification email sent to ${data.email}. Please check your inbox and click the verification link.`
       );
-
     } catch (error) {
       console.error("Verification error:", error);
 
@@ -134,10 +138,6 @@ function Welcome() {
           localStorage.removeItem("email");
 
           navigate("/login");
-          break;
-
-        case "EMAIL_NOT_FOUND":
-          alert("No email address is associated with this account.");
           break;
 
         default:
@@ -164,10 +164,12 @@ function Welcome() {
       {/* Top Bar */}
       <div className="min-h-15 border-b border-gray-400 flex items-center justify-between px-3">
 
+        {/* Left */}
         <p className="text-sm italic">
           Winners never quit, Quitters never win.
         </p>
 
+        {/* Right */}
         <div className="flex items-center gap-3">
 
           {/* Profile incomplete */}
@@ -210,23 +212,37 @@ function Welcome() {
             </button>
           )}
 
-          {/* Verified message */}
+          {/* Verified */}
           {emailVerified && (
             <div className="bg-green-50 text-green-700 px-4 py-2 rounded text-sm">
               Email Verified ✓
             </div>
           )}
 
+          {/* Logout */}
+          <button
+            onClick={logoutHandler}
+            className="
+              bg-red-500
+              hover:bg-red-600
+              text-white
+              px-4
+              py-2
+              rounded
+              text-sm
+            "
+          >
+            Logout
+          </button>
+
         </div>
       </div>
 
       {/* Welcome */}
       <div className="min-h-[calc(100vh-60px)] flex items-center justify-center">
-
         <h1 className="text-4xl font-bold text-gray-800">
           Welcome to Expense Tracker
         </h1>
-
       </div>
 
     </div>
