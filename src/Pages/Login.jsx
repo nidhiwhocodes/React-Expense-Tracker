@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 const API_KEY = import.meta.env.VITE_FIREBASE_API_KEY;
 
@@ -142,23 +142,28 @@ function Login() {
         </div>
 
         {/* Signup */}
-        <button
-          onClick={() => navigate("/signup")}
+        <div
           className="
-            w-58.75
-            h-7.5
             mt-3
-            rounded
-            border
-            border-gray-500
+            p-2.5
+            text-center
             bg-green-50
-            text-xs
-            text-gray-700
-            hover:bg-green-100
+            border
+            border-gray-400
+            rounded
+            text-[11px]
           "
         >
-          Don't have an account? Sign up
-        </button>
+          <span>Have an account? </span>
+
+          <Link
+            to="/Signup"
+            className="text-gray-800 font-medium hover:underline"
+          >
+            Sign up
+          </Link>
+        </div>
+         
       </div>
     </div>
   );
