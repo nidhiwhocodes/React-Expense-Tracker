@@ -7,8 +7,11 @@ function Welcome() {
   const navigate = useNavigate();
 
   const [profileComplete, setProfileComplete] = useState(false);
+  const [emailVerified, setEmailVerified] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [sendingEmail, setSendingEmail] = useState(false);
 
+  // Get user information from Firebase
   useEffect(() => {
     const getProfile = async () => {
       const token = localStorage.getItem("token");
@@ -36,20 +39,34 @@ function Welcome() {
 
         if (!response.ok) {
           throw new Error(
-            data.error?.message || "Unable to fetch profile"
+            data.error?.message || "Unable to fetch user details"
           );
         }
 
         const user = data.users?.[0];
 
-        // Check whether profile information exists
+        // Profile status
         if (user?.displayName && user?.photoUrl) {
           setProfileComplete(true);
         } else {
           setProfileComplete(false);
         }
+
+        // Email verification status
+        setEmailVerified(user?.emailVerified === true);
+
       } catch (error) {
-        console.error("Profile fetch error:", error);
+        console.error("Profile error:", error);
+
+        if (
+          error.message === "INVALID_ID_TOKEN" ||
+          error.message === "USER_NOT_FOUND"
+        ) {
+          localStorage.removeItem("token");
+          localStorage.removeItem("email");
+
+          navigate("/login");
+        }
       } finally {
         setLoading(false);
       }
@@ -57,6 +74,81 @@ function Welcome() {
 
     getProfile();
   }, [navigate]);
+
+  // Send verification email
+  const verifyEmailHandler = async () => {
+    const token = localStorage.getItem("token");
+
+    if (!token) {
+      alert("Please login again.");
+      navigate("/login");
+      return;
+    }
+
+    try {
+      setSendingEmail(true);
+
+      const response = await fetch(
+        `https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${API_KEY}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            requestType: "VERIFY_EMAIL",
+            idToken: token,
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      console.log("Verification response:", data);
+
+      if (!response.ok) {
+        throw new Error(data.error?.message || "Unable to send email");
+      }
+
+      alert(
+        `Verification email sent to ${data.email}. Please check your inbox and click the verification link.`
+      );
+
+    } catch (error) {
+      console.error("Verification error:", error);
+
+      switch (error.message) {
+        case "INVALID_ID_TOKEN":
+          alert("Your login session has expired. Please login again.");
+
+          localStorage.removeItem("token");
+          localStorage.removeItem("email");
+
+          navigate("/login");
+          break;
+
+        case "USER_NOT_FOUND":
+          alert("User account not found. Please login again.");
+
+          localStorage.removeItem("token");
+          localStorage.removeItem("email");
+
+          navigate("/login");
+          break;
+
+        case "EMAIL_NOT_FOUND":
+          alert("No email address is associated with this account.");
+          break;
+
+        default:
+          alert(
+            "Unable to send verification email. Please try again."
+          );
+      }
+    } finally {
+      setSendingEmail(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -70,47 +162,71 @@ function Welcome() {
     <div className="min-h-screen bg-white">
 
       {/* Top Bar */}
-      <div className="h-15 border-b border-gray-400 flex items-center justify-between px-3">
+      <div className="min-h-15 border-b border-gray-400 flex items-center justify-between px-3">
 
         <p className="text-sm italic">
           Winners never quit, Quitters never win.
         </p>
 
-        {/* Profile message */}
-        {!profileComplete && (
-          <div className="bg-red-50 rounded-lg px-4 py-2 text-sm italic">
-            Your Profile is{" "}
-            <span className="font-bold">
-              incomplete.
-            </span>{" "}
-            A complete Profile has higher chance of landing a job.
+        <div className="flex items-center gap-3">
 
+          {/* Profile incomplete */}
+          {!profileComplete && (
+            <div className="bg-red-50 rounded-lg px-4 py-2 text-sm italic">
+              Your Profile is{" "}
+              <span className="font-bold">
+                incomplete.
+              </span>{" "}
+              A complete Profile has higher chance of landing a job.
+
+              <button
+                onClick={() => navigate("/contact-details")}
+                className="text-blue-600 underline ml-1"
+              >
+                Complete now
+              </button>
+            </div>
+          )}
+
+          {/* Email verification */}
+          {!emailVerified && (
             <button
-              onClick={() => navigate("/contact-details")}
-              className="text-blue-600 underline ml-1"
+              onClick={verifyEmailHandler}
+              disabled={sendingEmail}
+              className="
+                bg-blue-500
+                hover:bg-blue-600
+                text-white
+                px-4
+                py-2
+                rounded
+                text-sm
+                disabled:opacity-50
+              "
             >
-              Complete now
+              {sendingEmail
+                ? "Sending..."
+                : "Verify Email ID"}
             </button>
-          </div>
-        )}
+          )}
 
-        {/* Completed message */}
-        {profileComplete && (
-          <div className="bg-green-50 rounded-lg px-4 py-2 text-sm">
-            Your Profile is{" "}
-            <span className="font-bold text-green-700">
-              complete.
-            </span>
-          </div>
-        )}
+          {/* Verified message */}
+          {emailVerified && (
+            <div className="bg-green-50 text-green-700 px-4 py-2 rounded text-sm">
+              Email Verified ✓
+            </div>
+          )}
 
+        </div>
       </div>
 
       {/* Welcome */}
       <div className="min-h-[calc(100vh-60px)] flex items-center justify-center">
+
         <h1 className="text-4xl font-bold text-gray-800">
           Welcome to Expense Tracker
         </h1>
+
       </div>
 
     </div>
