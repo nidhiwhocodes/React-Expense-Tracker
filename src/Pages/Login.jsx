@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 
 const API_KEY = import.meta.env.VITE_FIREBASE_API_KEY;
 
-
 function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -26,7 +25,7 @@ function Login() {
             password,
             returnSecureToken: true,
           }),
-        }
+        },
       );
 
       const data = await response.json();
@@ -43,15 +42,14 @@ function Login() {
 
       // Redirect after successful login
       navigate("/welcome");
-   } catch (error) {
-  console.error("Login error:", error);
-  alert(error.message);
-}
+    } catch (error) {
+      console.error("Login error:", error);
+      alert(error.message);
+    }
   };
 
   return (
     <div className="min-h-screen bg-white relative overflow-hidden">
-
       {/* Blue background shape */}
       <div
         className="
@@ -67,16 +65,11 @@ function Login() {
 
       {/* Login content */}
       <div className="relative z-10 flex flex-col items-center pt-52.5">
-
         {/* Login Card */}
         <div className="w-58.75 min-h-65 bg-white border border-gray-300 px-4 py-7">
-
-          <h2 className="text-center text-xl font-medium mb-7">
-            Login
-          </h2>
+          <h2 className="text-center text-xl font-medium mb-7">Login</h2>
 
           <form onSubmit={loginHandler}>
-
             {/* Email */}
             <input
               type="email"
@@ -141,16 +134,10 @@ function Login() {
           {/* Forgot Password */}
           <button
             type="button"
-            className="
-              block
-              mx-auto
-              mt-2
-              text-xs
-              text-purple-700
-              underline
-            "
+            onClick={() => navigate("/forgot-password")}
+            className="text-blue-600 text-sm hover:underline"
           >
-            Forgot password
+            Forgot Password?
           </button>
         </div>
 
