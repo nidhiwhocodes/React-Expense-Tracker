@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 const API_KEY = import.meta.env.VITE_FIREBASE_API_KEY;
-console.log("API KEY:", API_KEY);
+
 
 function Login() {
   const [email, setEmail] = useState("");

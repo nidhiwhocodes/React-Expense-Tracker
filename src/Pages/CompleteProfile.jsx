@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 const API_KEY = import.meta.env.VITE_FIREBASE_API_KEY;
@@ -8,8 +8,59 @@ function CompleteProfile() {
 
   const [fullName, setFullName] = useState("");
   const [photoUrl, setPhotoUrl] = useState("");
-  const [loading, setLoading] = useState(false);
 
+  const [loading, setLoading] = useState(true);
+  const [updating, setUpdating] = useState(false);
+
+  // Get existing profile
+  useEffect(() => {
+    const getProfile = async () => {
+      const token = localStorage.getItem("token");
+
+      if (!token) {
+        navigate("/login");
+        return;
+      }
+
+      try {
+        const response = await fetch(
+          `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${API_KEY}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              idToken: token,
+            }),
+          }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            data.error?.message || "Unable to fetch profile"
+          );
+        }
+
+        const user = data.users?.[0];
+
+        // Pre-fill form
+        setFullName(user?.displayName || "");
+        setPhotoUrl(user?.photoUrl || "");
+
+      } catch (error) {
+        console.error("Error fetching profile:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    getProfile();
+  }, [navigate]);
+
+  // Update profile
   const updateProfileHandler = async (e) => {
     e.preventDefault();
 
@@ -22,7 +73,7 @@ function CompleteProfile() {
     }
 
     try {
-      setLoading(true);
+      setUpdating(true);
 
       const response = await fetch(
         `https://identitytoolkit.googleapis.com/v1/accounts:update?key=${API_KEY}`,
@@ -43,54 +94,67 @@ function CompleteProfile() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error?.message || "Profile update failed");
+        throw new Error(
+          data.error?.message || "Profile update failed"
+        );
       }
 
-      // Firebase can return a new ID token
+      // Firebase may return a new token
       if (data.idToken) {
         localStorage.setItem("token", data.idToken);
       }
 
       alert("Profile updated successfully!");
 
-      navigate("/profile");
+      navigate("/welcome");
+
     } catch (error) {
-      console.error(error);
+      console.error("Update error:", error);
       alert("Something went wrong while updating your profile");
     } finally {
-      setLoading(false);
+      setUpdating(false);
     }
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p>Loading profile...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-white">
 
       {/* Top bar */}
-      <div className="border-b border-gray-400 px-2 py-1 flex justify-between items-center">
+      <div className="h-15 border-b border-gray-400 flex items-center justify-between px-3">
 
         <p className="text-sm italic">
           Winners never quit, Quitters never win.
         </p>
 
-        <div className="bg-red-50 rounded-lg px-4 py-1 text-sm italic">
-          Your Profile is <span className="font-bold">64% completed.</span>{" "}
+        <div className="bg-red-50 rounded-lg px-4 py-2 text-sm italic">
+          Your Profile is{" "}
+          <span className="font-bold">
+            incomplete.
+          </span>{" "}
           A complete Profile has higher chance of landing a job.
-          <span className="text-blue-600 ml-1">
-            Complete now
-          </span>
         </div>
 
       </div>
 
       {/* Cancel */}
       <div className="flex justify-end px-14 mt-8">
+
         <button
-          onClick={() => navigate("/profile")}
+          type="button"
+          onClick={() => navigate("/welcome")}
           className="
             border
             border-red-400
             text-red-500
-            px-2
+            px-3
             py-1
             rounded
             hover:bg-red-50
@@ -98,6 +162,7 @@ function CompleteProfile() {
         >
           Cancel
         </button>
+
       </div>
 
       {/* Form */}
@@ -115,7 +180,10 @@ function CompleteProfile() {
             <div className="flex items-center gap-4">
 
               <label className="font-semibold whitespace-nowrap">
-                <span className="text-xl mr-2">◉</span>
+                <span className="text-xl mr-2">
+                  ◉
+                </span>
+
                 Full Name:
               </label>
 
@@ -126,7 +194,7 @@ function CompleteProfile() {
                 className="
                   border
                   border-gray-400
-                  h-7
+                  h-8
                   flex-1
                   px-2
                   outline-none
@@ -137,11 +205,14 @@ function CompleteProfile() {
 
             </div>
 
-            {/* Profile Photo URL */}
+            {/* Profile Photo */}
             <div className="flex items-center gap-4">
 
               <label className="font-semibold whitespace-nowrap">
-                <span className="text-xl mr-2">◉</span>
+                <span className="text-xl mr-2">
+                  ◉
+                </span>
+
                 Profile Photo URL
               </label>
 
@@ -152,7 +223,7 @@ function CompleteProfile() {
                 className="
                   border
                   border-gray-400
-                  h-7
+                  h-8
                   flex-1
                   px-2
                   outline-none
@@ -165,22 +236,22 @@ function CompleteProfile() {
 
           </div>
 
-          {/* Update */}
+          {/* Update button */}
           <button
             type="submit"
-            disabled={loading}
+            disabled={updating}
             className="
               mt-7
               bg-red-400
               hover:bg-red-500
               text-white
-              px-3
-              py-1.5
+              px-4
+              py-2
               rounded
               disabled:opacity-50
             "
           >
-            {loading ? "Updating..." : "Update"}
+            {updating ? "Updating..." : "Update"}
           </button>
 
         </form>
