@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 const API_KEY = import.meta.env.VITE_FIREBASE_API_KEY;
+console.log("API KEY:", API_KEY);
 
 function Login() {
   const [email, setEmail] = useState("");
@@ -42,9 +43,10 @@ function Login() {
 
       // Redirect after successful login
       navigate("/welcome");
-    } catch {
-      alert("Invalid email or password");
-    }
+   } catch (error) {
+  console.error("Login error:", error);
+  alert(error.message);
+}
   };
 
   return (
