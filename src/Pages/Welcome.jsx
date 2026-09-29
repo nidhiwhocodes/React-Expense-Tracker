@@ -313,7 +313,7 @@ function Welcome() {
     <div className="min-h-screen bg-gray-100">
 
       {/* Top Bar */}
-      <div className="min-h-[60px] bg-white border-b border-gray-300 flex items-center justify-between px-4">
+      <div className="min-h-15 bg-white border-b border-gray-300 flex items-center justify-between px-4">
 
         <p className="text-sm italic">
           Winners never quit, Quitters never win.
