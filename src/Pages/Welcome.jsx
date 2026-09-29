@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 const API_KEY = import.meta.env.VITE_FIREBASE_API_KEY;
+const DATABASE_URL = import.meta.env.VITE_FIREBASE_DATABASE_URL;
 
 function Welcome() {
   const navigate = useNavigate();
@@ -17,9 +18,17 @@ function Welcome() {
   const [category, setCategory] = useState("Food");
 
   const [expenses, setExpenses] = useState([]);
+  const [expenseLoading, setExpenseLoading] = useState(false);
+  const [addingExpense, setAddingExpense] = useState(false);
+
+  const [userId, setUserId] = useState("");
+
+  // --------------------------------------------------
+  // GET USER + GET EXPENSES
+  // --------------------------------------------------
 
   useEffect(() => {
-    const getUserDetails = async () => {
+    const getUserDetailsAndExpenses = async () => {
       const token = localStorage.getItem("token");
 
       if (!token) {
@@ -28,6 +37,7 @@ function Welcome() {
       }
 
       try {
+        // Get Firebase user details
         const response = await fetch(
           `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${API_KEY}`,
           {
@@ -44,7 +54,9 @@ function Welcome() {
         const data = await response.json();
 
         if (!response.ok) {
-          throw new Error(data.error?.message || "Failed to get user");
+          throw new Error(
+            data.error?.message || "Failed to get user"
+          );
         }
 
         const user = data.users?.[0];
@@ -56,13 +68,45 @@ function Welcome() {
           return;
         }
 
+        // Save Firebase localId
+        setUserId(user.localId);
+
         setProfileComplete(
           Boolean(user.displayName && user.photoUrl)
         );
 
         setEmailVerified(Boolean(user.emailVerified));
+
+        // ---------------------------------------------
+        // GET ALL EXPENSES FOR THIS USER
+        // ---------------------------------------------
+
+        setExpenseLoading(true);
+
+        const expensesResponse = await fetch(
+          `${DATABASE_URL}/expenses/${user.localId}.json?auth=${token}`
+        );
+
+        if (!expensesResponse.ok) {
+          throw new Error("Failed to fetch expenses");
+        }
+
+        const expensesData = await expensesResponse.json();
+
+        if (expensesData) {
+          const expensesArray = Object.entries(expensesData).map(
+            ([id, expense]) => ({
+              id,
+              ...expense,
+            })
+          );
+
+          setExpenses(expensesArray);
+        } else {
+          setExpenses([]);
+        }
       } catch (error) {
-        console.error("User details error:", error);
+        console.error("User/expense loading error:", error);
 
         localStorage.removeItem("token");
         localStorage.removeItem("email");
@@ -70,14 +114,18 @@ function Welcome() {
         navigate("/login");
       } finally {
         setLoading(false);
+        setExpenseLoading(false);
       }
     };
 
-    getUserDetails();
+    getUserDetailsAndExpenses();
   }, [navigate]);
 
-  // Add expense
-  const addExpenseHandler = (e) => {
+  // --------------------------------------------------
+  // ADD EXPENSE
+  // --------------------------------------------------
+
+  const addExpenseHandler = async (e) => {
     e.preventDefault();
 
     if (!amount || !description || !category) {
@@ -90,23 +138,80 @@ function Welcome() {
       return;
     }
 
+    const token = localStorage.getItem("token");
+
+    if (!token) {
+      navigate("/login");
+      return;
+    }
+
+    if (!userId) {
+      alert("User information is not available. Please try again.");
+      return;
+    }
+
     const newExpense = {
-      id: Date.now(),
       amount: Number(amount),
       description: description.trim(),
-      category,
+      category: category,
     };
 
-    setExpenses((previousExpenses) => [
-      ...previousExpenses,
-      newExpense,
-    ]);
+    setAddingExpense(true);
 
-    // Clear form
-    setAmount("");
-    setDescription("");
-    setCategory("Food");
+    try {
+      // POST expense to Firebase Realtime Database
+      const response = await fetch(
+        `${DATABASE_URL}/expenses/${userId}.json?auth=${token}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(newExpense),
+        }
+      );
+
+      const data = await response.json();
+
+      console.log("Add expense response:", data);
+
+      // Only show expense after successful response
+      if (!response.ok) {
+        throw new Error(
+          data.error || "Failed to add expense"
+        );
+      }
+
+      // Firebase POST response contains generated key in `name`
+      const expenseWithId = {
+        id: data.name,
+        ...newExpense,
+      };
+
+      // Show on screen ONLY after successful Firebase response
+      setExpenses((previousExpenses) => [
+        ...previousExpenses,
+        expenseWithId,
+      ]);
+
+      // Clear form
+      setAmount("");
+      setDescription("");
+      setCategory("Food");
+    } catch (error) {
+      console.error("Add expense error:", error);
+
+      alert(
+        error.message || "Failed to add expense. Please try again."
+      );
+    } finally {
+      setAddingExpense(false);
+    }
   };
+
+  // --------------------------------------------------
+  // LOGOUT
+  // --------------------------------------------------
 
   const logoutHandler = () => {
     localStorage.removeItem("token");
@@ -114,6 +219,10 @@ function Welcome() {
 
     navigate("/login");
   };
+
+  // --------------------------------------------------
+  // VERIFY EMAIL
+  // --------------------------------------------------
 
   const verifyEmailHandler = async () => {
     const token = localStorage.getItem("token");
@@ -143,7 +252,9 @@ function Welcome() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error?.message || "Failed to send email");
+        throw new Error(
+          data.error?.message || "Failed to send email"
+        );
       }
 
       alert(`Verification email sent to ${data.email}`);
@@ -172,6 +283,10 @@ function Welcome() {
     }
   };
 
+  // --------------------------------------------------
+  // INITIAL LOADING
+  // --------------------------------------------------
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -190,11 +305,15 @@ function Welcome() {
     );
   }
 
+  // --------------------------------------------------
+  // UI
+  // --------------------------------------------------
+
   return (
     <div className="min-h-screen bg-gray-100">
 
       {/* Top Bar */}
-      <div className="min-h-15 bg-white border-b border-gray-300 flex items-center justify-between px-4">
+      <div className="min-h-[60px] bg-white border-b border-gray-300 flex items-center justify-between px-4">
 
         <p className="text-sm italic">
           Winners never quit, Quitters never win.
@@ -261,14 +380,12 @@ function Welcome() {
           >
             Logout
           </button>
-
         </div>
       </div>
 
       {/* Main Content */}
       <div className="max-w-4xl mx-auto px-4 py-10">
 
-        {/* Welcome */}
         <h1 className="text-3xl font-bold text-center mb-8">
           Welcome to Expense Tracker
         </h1>
@@ -298,6 +415,7 @@ function Welcome() {
                 placeholder="Enter amount"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
+                disabled={addingExpense}
                 className="
                   w-full
                   border
@@ -307,6 +425,7 @@ function Welcome() {
                   py-2
                   outline-none
                   focus:border-blue-500
+                  disabled:bg-gray-100
                 "
               />
             </div>
@@ -322,6 +441,7 @@ function Welcome() {
                 placeholder="Enter description"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
+                disabled={addingExpense}
                 className="
                   w-full
                   border
@@ -331,6 +451,7 @@ function Welcome() {
                   py-2
                   outline-none
                   focus:border-blue-500
+                  disabled:bg-gray-100
                 "
               />
             </div>
@@ -344,6 +465,7 @@ function Welcome() {
               <select
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
+                disabled={addingExpense}
                 className="
                   w-full
                   border
@@ -354,6 +476,7 @@ function Welcome() {
                   outline-none
                   focus:border-blue-500
                   bg-white
+                  disabled:bg-gray-100
                 "
               >
                 <option value="Food">Food</option>
@@ -371,8 +494,10 @@ function Welcome() {
 
             {/* Submit */}
             <div className="md:col-span-3">
+
               <button
                 type="submit"
+                disabled={addingExpense}
                 className="
                   w-full
                   bg-blue-500
@@ -381,23 +506,42 @@ function Welcome() {
                   py-2
                   rounded
                   font-medium
+                  disabled:opacity-50
+                  disabled:cursor-not-allowed
                 "
               >
-                Add Expense
+                {addingExpense
+                  ? "Adding Expense..."
+                  : "Add Expense"}
               </button>
+
             </div>
 
           </form>
         </div>
 
-        {/* Expenses List */}
+        {/* Expenses */}
         <div className="mt-8">
 
           <h2 className="text-xl font-bold mb-4">
             Your Expenses
           </h2>
 
-          {expenses.length === 0 ? (
+          {expenseLoading ? (
+            <div className="bg-white rounded-lg shadow p-6 flex justify-center">
+              <div
+                className="
+                  w-8
+                  h-8
+                  border-4
+                  border-gray-300
+                  border-t-blue-500
+                  rounded-full
+                  animate-spin
+                "
+              ></div>
+            </div>
+          ) : expenses.length === 0 ? (
             <div className="bg-white rounded-lg shadow p-6 text-center text-gray-500">
               No expenses added yet.
             </div>
@@ -417,7 +561,6 @@ function Welcome() {
                     justify-between
                   "
                 >
-
                   <div>
                     <h3 className="font-semibold">
                       {expense.description}
@@ -431,7 +574,6 @@ function Welcome() {
                   <p className="font-bold text-lg">
                     ₹{expense.amount}
                   </p>
-
                 </div>
               ))}
 
