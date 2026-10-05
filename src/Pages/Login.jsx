@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import useAuth from "../context/useAuth";
 
 const API_KEY = import.meta.env.VITE_FIREBASE_API_KEY;
 
@@ -8,6 +9,9 @@ function Login() {
   const [password, setPassword] = useState("");
 
   const navigate = useNavigate();
+
+  // Get dispatch from Auth Context
+  const { dispatch } = useAuth();
 
   const loginHandler = async (e) => {
     e.preventDefault();
@@ -25,7 +29,7 @@ function Login() {
             password,
             returnSecureToken: true,
           }),
-        },
+        }
       );
 
       const data = await response.json();
@@ -34,22 +38,34 @@ function Login() {
         throw new Error(data.error?.message || "Login failed");
       }
 
-      // Store Firebase token
+      // Store Firebase token in localStorage
       localStorage.setItem("token", data.idToken);
 
       // Store user email
       localStorage.setItem("email", data.email);
 
+      // Save login information in Auth Reducer
+      dispatch({
+        type: "LOGIN",
+        payload: {
+          token: data.idToken,
+          userId: data.localId,
+        },
+      });
+
       // Redirect after successful login
       navigate("/welcome");
     } catch (error) {
       console.error("Login error:", error);
+
+      // Show Firebase error to user
       alert(error.message);
     }
   };
 
   return (
     <div className="min-h-screen bg-white relative overflow-hidden">
+
       {/* Blue background shape */}
       <div
         className="
@@ -65,11 +81,16 @@ function Login() {
 
       {/* Login content */}
       <div className="relative z-10 flex flex-col items-center pt-52.5">
+
         {/* Login Card */}
         <div className="w-58.75 min-h-65 bg-white border border-gray-300 px-4 py-7">
-          <h2 className="text-center text-xl font-medium mb-7">Login</h2>
+
+          <h2 className="text-center text-xl font-medium mb-7">
+            Login
+          </h2>
 
           <form onSubmit={loginHandler}>
+
             {/* Email */}
             <input
               type="email"
@@ -163,7 +184,7 @@ function Login() {
             Sign up
           </Link>
         </div>
-         
+
       </div>
     </div>
   );

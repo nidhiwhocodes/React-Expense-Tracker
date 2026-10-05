@@ -1,15 +1,32 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
+import useAuth from "../context/useAuth";
+import useExpenses from "../context/useExpenses";
+
 const API_KEY = import.meta.env.VITE_FIREBASE_API_KEY;
-const DATABASE_URL = import.meta.env.VITE_FIREBASE_DATABASE_URL;
 
 function Welcome() {
   const navigate = useNavigate();
 
-  // ==========================================
-  // USER STATES
-  // ==========================================
+  // =========================
+  // AUTH REDUCER
+  // =========================
+
+  const { authState, dispatch: authDispatch } = useAuth();
+
+  // =========================
+  // EXPENSE REDUCER
+  // =========================
+
+  const {
+    expenses,
+    dispatch: expenseDispatch,
+  } = useExpenses();
+
+  // =========================
+  // PROFILE STATES
+  // =========================
 
   const [profileComplete, setProfileComplete] = useState(false);
   const [emailVerified, setEmailVerified] = useState(false);
@@ -17,57 +34,33 @@ function Welcome() {
   const [loading, setLoading] = useState(true);
   const [sendingEmail, setSendingEmail] = useState(false);
 
-  const [userId, setUserId] = useState("");
-
-  // ==========================================
-  // ADD EXPENSE STATES
-  // ==========================================
+  // =========================
+  // EXPENSE FORM STATES
+  // =========================
 
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
-  const [category, setCategory] = useState("Food");
+  const [category, setCategory] = useState("");
 
-  const [expenses, setExpenses] = useState([]);
+  // =========================
+  // GET TOKEN
+  // =========================
 
-  const [expenseLoading, setExpenseLoading] = useState(false);
-  const [addingExpense, setAddingExpense] = useState(false);
+  const token =
+    authState.token || localStorage.getItem("token");
 
-  // ==========================================
-  // EDIT EXPENSE STATES
-  // ==========================================
-
-  const [editingExpenseId, setEditingExpenseId] = useState(null);
-
-  const [editAmount, setEditAmount] = useState("");
-  const [editDescription, setEditDescription] = useState("");
-  const [editCategory, setEditCategory] = useState("Food");
-
-  const [updatingExpense, setUpdatingExpense] = useState(false);
-
-  // ==========================================
-  // DELETE EXPENSE STATE
-  // ==========================================
-
-  const [deletingExpenseId, setDeletingExpenseId] = useState(null);
-
-  // ==========================================
-  // GET USER DETAILS + GET EXPENSES
-  // ==========================================
+  // =========================
+  // GET USER PROFILE
+  // =========================
 
   useEffect(() => {
-    const getUserDetailsAndExpenses = async () => {
-      const token = localStorage.getItem("token");
-
+    const getProfile = async () => {
       if (!token) {
         navigate("/login");
         return;
       }
 
       try {
-        // ------------------------------------------
-        // GET USER DETAILS FROM FIREBASE
-        // ------------------------------------------
-
         const response = await fetch(
           `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${API_KEY}`,
           {
@@ -83,414 +76,77 @@ function Welcome() {
 
         const data = await response.json();
 
-        console.log("User details response:", data);
-
         if (!response.ok) {
           throw new Error(
-            data.error?.message || "Failed to get user"
+            data.error?.message ||
+              "Unable to fetch user details"
           );
         }
 
         const user = data.users?.[0];
 
-        if (!user) {
+        // Store user ID in Auth Reducer
+        if (user?.localId) {
+          authDispatch({
+            type: "LOGIN",
+            payload: {
+              token: token,
+              userId: user.localId,
+            },
+          });
+        }
+
+        // Check profile completion
+        //
+        // Change these fields according to the fields
+        // you save while completing the profile.
+        if (user?.displayName && user?.photoUrl) {
+          setProfileComplete(true);
+        } else {
+          setProfileComplete(false);
+        }
+
+        // Check email verification
+        setEmailVerified(user?.emailVerified === true);
+
+      } catch (error) {
+        console.error("Profile error:", error);
+
+        if (
+          error.message === "INVALID_ID_TOKEN" ||
+          error.message === "USER_NOT_FOUND"
+        ) {
           localStorage.removeItem("token");
           localStorage.removeItem("email");
 
+          authDispatch({
+            type: "LOGOUT",
+          });
+
           navigate("/login");
-          return;
         }
-
-        // ------------------------------------------
-        // SAVE USER ID
-        // ------------------------------------------
-
-        setUserId(user.localId);
-
-        // ------------------------------------------
-        // CHECK PROFILE
-        // ------------------------------------------
-
-        setProfileComplete(
-          Boolean(user.displayName && user.photoUrl)
-        );
-
-        // ------------------------------------------
-        // CHECK EMAIL VERIFICATION
-        // ------------------------------------------
-
-        setEmailVerified(Boolean(user.emailVerified));
-
-        // ------------------------------------------
-        // GET EXPENSES
-        // ------------------------------------------
-
-        setExpenseLoading(true);
-
-        const expensesResponse = await fetch(
-          `${DATABASE_URL}/expenses/${user.localId}.json?auth=${token}`
-        );
-
-        if (!expensesResponse.ok) {
-          const expensesError = await expensesResponse.json();
-
-          throw new Error(
-            expensesError.error || "Failed to fetch expenses"
-          );
-        }
-
-        const expensesData = await expensesResponse.json();
-
-        console.log("Expenses GET response:", expensesData);
-
-        if (expensesData) {
-          const expensesArray = Object.entries(expensesData).map(
-            ([id, expense]) => ({
-              id,
-              ...expense,
-            })
-          );
-
-          setExpenses(expensesArray);
-        } else {
-          setExpenses([]);
-        }
-      } catch (error) {
-        console.error(
-          "User/expense loading error:",
-          error
-        );
-
-        localStorage.removeItem("token");
-        localStorage.removeItem("email");
-
-        navigate("/login");
       } finally {
         setLoading(false);
-        setExpenseLoading(false);
       }
     };
 
-    getUserDetailsAndExpenses();
-  }, [navigate]);
+    getProfile();
+  }, [token, navigate, authDispatch]);
 
-  // ==========================================
-  // ADD EXPENSE
-  // ==========================================
-
-  const addExpenseHandler = async (e) => {
-    e.preventDefault();
-
-    // Validate fields
-    if (!amount || !description || !category) {
-      alert("Please fill all the fields");
-      return;
-    }
-
-    // Validate amount
-    if (Number(amount) <= 0) {
-      alert("Please enter a valid amount");
-      return;
-    }
-
-    const token = localStorage.getItem("token");
-
-    if (!token) {
-      navigate("/login");
-      return;
-    }
-
-    if (!userId) {
-      alert(
-        "User information is not available. Please try again."
-      );
-      return;
-    }
-
-    const newExpense = {
-      amount: Number(amount),
-      description: description.trim(),
-      category: category,
-    };
-
-    setAddingExpense(true);
-
-    try {
-      // ------------------------------------------
-      // POST EXPENSE TO FIREBASE
-      // ------------------------------------------
-
-      const response = await fetch(
-        `${DATABASE_URL}/expenses/${userId}.json?auth=${token}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(newExpense),
-        }
-      );
-
-      const data = await response.json();
-
-      console.log("Add expense response:", data);
-
-      // ------------------------------------------
-      // CHECK RESPONSE
-      // ------------------------------------------
-
-      if (!response.ok) {
-        throw new Error(
-          data.error || "Failed to add expense"
-        );
-      }
-
-      // ------------------------------------------
-      // ADD TO SCREEN ONLY AFTER SUCCESS
-      // ------------------------------------------
-
-      const expenseWithId = {
-        id: data.name,
-        ...newExpense,
-      };
-
-      setExpenses((previousExpenses) => [
-        ...previousExpenses,
-        expenseWithId,
-      ]);
-
-      // ------------------------------------------
-      // CLEAR FORM
-      // ------------------------------------------
-
-      setAmount("");
-      setDescription("");
-      setCategory("Food");
-    } catch (error) {
-      console.error("Add expense error:", error);
-
-      alert(
-        error.message ||
-          "Failed to add expense. Please try again."
-      );
-    } finally {
-      setAddingExpense(false);
-    }
-  };
-
-  // ==========================================
-  // DELETE EXPENSE
-  // ==========================================
-
-  const deleteExpenseHandler = async (expenseId) => {
-    const token = localStorage.getItem("token");
-
-    if (!token) {
-      navigate("/login");
-      return;
-    }
-
-    setDeletingExpenseId(expenseId);
-
-    try {
-      // ------------------------------------------
-      // DELETE REQUEST
-      // ------------------------------------------
-
-      const response = await fetch(
-        `${DATABASE_URL}/expenses/${userId}/${expenseId}.json?auth=${token}`,
-        {
-          method: "DELETE",
-        }
-      );
-
-      const data = await response.json();
-
-      console.log("Delete expense response:", data);
-
-      // ------------------------------------------
-      // CHECK RESPONSE
-      // ------------------------------------------
-
-      if (!response.ok) {
-        throw new Error(
-          data.error || "Failed to delete expense"
-        );
-      }
-
-      // ------------------------------------------
-      // REMOVE FROM UI AFTER SUCCESS
-      // ------------------------------------------
-
-      setExpenses((previousExpenses) =>
-        previousExpenses.filter(
-          (expense) => expense.id !== expenseId
-        )
-      );
-
-      console.log("Expense successfuly deleted");
-    } catch (error) {
-      console.error("Delete expense error:", error);
-
-      alert(
-        error.message ||
-          "Failed to delete expense. Please try again."
-      );
-    } finally {
-      setDeletingExpenseId(null);
-    }
-  };
-
-  // ==========================================
-  // START EDITING EXPENSE
-  // ==========================================
-
-  const editExpenseHandler = (expense) => {
-    setEditingExpenseId(expense.id);
-
-    setEditAmount(expense.amount);
-    setEditDescription(expense.description);
-    setEditCategory(expense.category);
-  };
-
-  // ==========================================
-  // UPDATE EXPENSE
-  // ==========================================
-
-  const updateExpenseHandler = async (e, expenseId) => {
-    e.preventDefault();
-
-    const token = localStorage.getItem("token");
-
-    if (!token) {
-      navigate("/login");
-      return;
-    }
-
-    // ------------------------------------------
-    // VALIDATION
-    // ------------------------------------------
-
-    if (
-      !editAmount ||
-      !editDescription ||
-      !editCategory
-    ) {
-      alert("Please fill all the fields");
-      return;
-    }
-
-    if (Number(editAmount) <= 0) {
-      alert("Please enter a valid amount");
-      return;
-    }
-
-    const updatedExpense = {
-      amount: Number(editAmount),
-      description: editDescription.trim(),
-      category: editCategory,
-    };
-
-    setUpdatingExpense(true);
-
-    try {
-      // ------------------------------------------
-      // PUT REQUEST
-      // ------------------------------------------
-
-      const response = await fetch(
-        `${DATABASE_URL}/expenses/${userId}/${expenseId}.json?auth=${token}`,
-        {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(updatedExpense),
-        }
-      );
-
-      const data = await response.json();
-
-      console.log(
-        "Update expense response:",
-        data
-      );
-
-      // ------------------------------------------
-      // CHECK RESPONSE
-      // ------------------------------------------
-
-      if (!response.ok) {
-        throw new Error(
-          data.error || "Failed to update expense"
-        );
-      }
-
-      // ------------------------------------------
-      // UPDATE UI AFTER SUCCESS
-      // ------------------------------------------
-
-      setExpenses((previousExpenses) =>
-        previousExpenses.map((expense) =>
-          expense.id === expenseId
-            ? {
-                id: expenseId,
-                ...updatedExpense,
-              }
-            : expense
-        )
-      );
-
-      // ------------------------------------------
-      // EXIT EDIT MODE
-      // ------------------------------------------
-
-      setEditingExpenseId(null);
-
-      setEditAmount("");
-      setEditDescription("");
-      setEditCategory("Food");
-    } catch (error) {
-      console.error(
-        "Update expense error:",
-        error
-      );
-
-      alert(
-        error.message ||
-          "Failed to update expense. Please try again."
-      );
-    } finally {
-      setUpdatingExpense(false);
-    }
-  };
-
-  // ==========================================
-  // LOGOUT
-  // ==========================================
-
-  const logoutHandler = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("email");
-
-    navigate("/login");
-  };
-
-  // ==========================================
-  // VERIFY EMAIL
-  // ==========================================
+  // =========================
+  // SEND VERIFICATION EMAIL
+  // =========================
 
   const verifyEmailHandler = async () => {
-    const token = localStorage.getItem("token");
-
     if (!token) {
+      alert("Please login again.");
       navigate("/login");
       return;
     }
 
-    setSendingEmail(true);
-
     try {
+      setSendingEmail(true);
+
       const response = await fetch(
         `https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${API_KEY}`,
         {
@@ -507,87 +163,145 @@ function Welcome() {
 
       const data = await response.json();
 
-      console.log(
-        "Verification email response:",
-        data
-      );
-
       if (!response.ok) {
         throw new Error(
           data.error?.message ||
-            "Failed to send email"
+            "Unable to send verification email"
         );
       }
 
       alert(
-        `Verification email sent to ${data.email}`
+        `Verification email sent to ${data.email}. Please check your email and click the verification link.`
       );
     } catch (error) {
-      console.error(
-        "Email verification error:",
-        error
-      );
+      console.error("Verification error:", error);
 
-      if (
-        error.message === "INVALID_ID_TOKEN"
-      ) {
-        alert(
-          "Your session has expired. Please login again."
-        );
+      switch (error.message) {
+        case "INVALID_ID_TOKEN":
+          alert(
+            "Your login session has expired. Please login again."
+          );
 
-        localStorage.removeItem("token");
-        localStorage.removeItem("email");
+          localStorage.removeItem("token");
+          localStorage.removeItem("email");
 
-        navigate("/login");
-      } else if (
-        error.message === "USER_NOT_FOUND"
-      ) {
-        alert("User account not found.");
+          authDispatch({
+            type: "LOGOUT",
+          });
 
-        localStorage.removeItem("token");
-        localStorage.removeItem("email");
+          navigate("/login");
 
-        navigate("/login");
-      } else {
-        alert(error.message);
+          break;
+
+        case "USER_NOT_FOUND":
+          alert("User account not found. Please login again.");
+
+          localStorage.removeItem("token");
+          localStorage.removeItem("email");
+
+          authDispatch({
+            type: "LOGOUT",
+          });
+
+          navigate("/login");
+
+          break;
+
+        default:
+          alert(
+            "Unable to send verification email. Please try again."
+          );
       }
     } finally {
       setSendingEmail(false);
     }
   };
 
-  // ==========================================
-  // PAGE LOADING
-  // ==========================================
+  // =========================
+  // LOGOUT
+  // =========================
+
+  const logoutHandler = () => {
+    // Remove token
+    localStorage.removeItem("token");
+
+    // Remove email
+    localStorage.removeItem("email");
+
+    // Clear Auth Reducer
+    authDispatch({
+      type: "LOGOUT",
+    });
+
+    // Clear Expense Reducer
+    expenseDispatch({
+      type: "CLEAR_EXPENSES",
+    });
+
+    // Redirect to login
+    navigate("/login");
+  };
+
+  // =========================
+  // ADD EXPENSE
+  // =========================
+
+  const addExpenseHandler = (e) => {
+    e.preventDefault();
+
+    const newExpense = {
+      id: Date.now(),
+      amount: Number(amount),
+      description: description,
+      category: category,
+    };
+
+    expenseDispatch({
+      type: "ADD_EXPENSE",
+      payload: newExpense,
+    });
+
+    // Clear form
+    setAmount("");
+    setDescription("");
+    setCategory("");
+  };
+
+  // =========================
+  // CALCULATE TOTAL EXPENSE
+  // =========================
+
+  const totalExpenses = expenses.reduce(
+    (total, expense) => {
+      return total + Number(expense.amount);
+    },
+    0
+  );
+
+  // =========================
+  // LOADING SCREEN
+  // =========================
 
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div
-          className="
-            w-10
-            h-10
-            border-4
-            border-gray-300
-            border-t-blue-500
-            rounded-full
-            animate-spin
-          "
-        ></div>
+        <p className="text-lg font-medium">
+          Loading...
+        </p>
       </div>
     );
   }
 
-  // ==========================================
-  // UI
-  // ==========================================
+  // =========================
+  // MAIN UI
+  // =========================
 
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div className="min-h-screen bg-gray-50">
 
-      {/* ======================================
+      {/* =========================
           TOP BAR
-          ====================================== */}
+      ========================= */}
 
       <div
         className="
@@ -598,38 +312,43 @@ function Welcome() {
           flex
           items-center
           justify-between
-          px-4
+          px-6
+          py-3
+          gap-4
         "
       >
 
-        {/* Quote */}
-        <p className="text-sm italic">
+        {/* LEFT SIDE */}
+
+        <p className="text-sm italic text-gray-600">
           Winners never quit, Quitters never win.
         </p>
 
+        {/* RIGHT SIDE */}
+
         <div className="flex items-center gap-3">
 
-          {/* ==================================
-              PROFILE INCOMPLETE
-              ================================== */}
+          {/* PROFILE INCOMPLETE */}
 
           {!profileComplete && (
             <div
               className="
                 bg-red-50
+                border
+                border-red-200
                 rounded-lg
                 px-4
                 py-2
                 text-sm
-                italic
               "
             >
-              Your Profile is{" "}
+              <span className="italic">
+                Your Profile is{" "}
+              </span>
+
               <span className="font-bold">
                 incomplete.
-              </span>{" "}
-              A complete Profile has higher chance
-              of landing a job.
+              </span>
 
               <button
                 onClick={() =>
@@ -638,7 +357,8 @@ function Welcome() {
                 className="
                   text-blue-600
                   underline
-                  ml-1
+                  ml-2
+                  hover:text-blue-800
                 "
               >
                 Complete now
@@ -646,9 +366,7 @@ function Welcome() {
             </div>
           )}
 
-          {/* ==================================
-              EMAIL VERIFICATION
-              ================================== */}
+          {/* VERIFY EMAIL */}
 
           {!emailVerified && (
             <button
@@ -671,11 +389,15 @@ function Welcome() {
             </button>
           )}
 
+          {/* EMAIL VERIFIED */}
+
           {emailVerified && (
             <div
               className="
                 bg-green-50
                 text-green-700
+                border
+                border-green-200
                 px-4
                 py-2
                 rounded
@@ -686,9 +408,7 @@ function Welcome() {
             </div>
           )}
 
-          {/* ==================================
-              LOGOUT
-              ================================== */}
+          {/* LOGOUT */}
 
           <button
             onClick={logoutHandler}
@@ -708,59 +428,59 @@ function Welcome() {
         </div>
       </div>
 
-      {/* ======================================
+      {/* =========================
           MAIN CONTENT
-          ====================================== */}
+      ========================= */}
 
       <div
         className="
-          max-w-4xl
+          max-w-6xl
           mx-auto
-          px-4
+          px-6
           py-10
         "
       >
 
-        {/* ==================================
-            WELCOME
-            ================================== */}
+        {/* WELCOME */}
 
         <h1
           className="
             text-3xl
             font-bold
-            text-center
+            text-gray-800
             mb-8
           "
         >
           Welcome to Expense Tracker
         </h1>
 
-        {/* ==================================
+        {/* =========================
             ADD EXPENSE FORM
-            ================================== */}
+        ========================= */}
 
-        <div
+        <form
+          onSubmit={addExpenseHandler}
           className="
             bg-white
+            border
+            border-gray-300
             rounded-lg
-            shadow-md
             p-6
+            shadow-sm
           "
         >
 
           <h2
             className="
               text-xl
-              font-bold
+              font-semibold
               mb-5
             "
           >
             Add Daily Expense
           </h2>
 
-          <form
-            onSubmit={addExpenseHandler}
+          <div
             className="
               grid
               grid-cols-1
@@ -769,9 +489,7 @@ function Welcome() {
             "
           >
 
-            {/* ==============================
-                AMOUNT
-                ============================== */}
+            {/* MONEY SPENT */}
 
             <div>
               <label
@@ -782,19 +500,18 @@ function Welcome() {
                   mb-2
                 "
               >
-                Amount
+                Money Spent
               </label>
 
               <input
                 type="number"
                 min="1"
-                step="0.01"
                 placeholder="Enter amount"
                 value={amount}
                 onChange={(e) =>
                   setAmount(e.target.value)
                 }
-                disabled={addingExpense}
+                required
                 className="
                   w-full
                   border
@@ -804,14 +521,11 @@ function Welcome() {
                   py-2
                   outline-none
                   focus:border-blue-500
-                  disabled:bg-gray-100
                 "
               />
             </div>
 
-            {/* ==============================
-                DESCRIPTION
-                ============================== */}
+            {/* DESCRIPTION */}
 
             <div>
               <label
@@ -832,7 +546,7 @@ function Welcome() {
                 onChange={(e) =>
                   setDescription(e.target.value)
                 }
-                disabled={addingExpense}
+                required
                 className="
                   w-full
                   border
@@ -842,14 +556,11 @@ function Welcome() {
                   py-2
                   outline-none
                   focus:border-blue-500
-                  disabled:bg-gray-100
                 "
               />
             </div>
 
-            {/* ==============================
-                CATEGORY
-                ============================== */}
+            {/* CATEGORY */}
 
             <div>
               <label
@@ -868,7 +579,7 @@ function Welcome() {
                 onChange={(e) =>
                   setCategory(e.target.value)
                 }
-                disabled={addingExpense}
+                required
                 className="
                   w-full
                   border
@@ -876,12 +587,15 @@ function Welcome() {
                   rounded
                   px-3
                   py-2
+                  bg-white
                   outline-none
                   focus:border-blue-500
-                  bg-white
-                  disabled:bg-gray-100
                 "
               >
+                <option value="">
+                  Select category
+                </option>
+
                 <option value="Food">
                   Food
                 </option>
@@ -902,12 +616,12 @@ function Welcome() {
                   Travel
                 </option>
 
-                <option value="Entertainment">
-                  Entertainment
-                </option>
-
                 <option value="Bills">
                   Bills
+                </option>
+
+                <option value="Entertainment">
+                  Entertainment
                 </option>
 
                 <option value="Other">
@@ -916,430 +630,156 @@ function Welcome() {
               </select>
             </div>
 
-            {/* ==============================
-                ADD BUTTON
-                ============================== */}
+          </div>
 
-            <div className="md:col-span-3">
+          {/* ADD EXPENSE BUTTON */}
 
-              <button
-                type="submit"
-                disabled={addingExpense}
-                className="
-                  w-full
-                  bg-blue-500
-                  hover:bg-blue-600
-                  text-white
-                  py-2
-                  rounded
-                  font-medium
-                  disabled:opacity-50
-                  disabled:cursor-not-allowed
-                "
-              >
-                {addingExpense
-                  ? "Adding Expense..."
-                  : "Add Expense"}
-              </button>
+          <button
+            type="submit"
+            className="
+              mt-5
+              bg-blue-500
+              hover:bg-blue-600
+              text-white
+              px-5
+              py-2
+              rounded
+            "
+          >
+            Add Expense
+          </button>
 
-            </div>
+        </form>
 
-          </form>
+        {/* =========================
+            TOTAL EXPENSE
+        ========================= */}
+
+        <div
+          className="
+            mt-8
+            bg-white
+            border
+            border-gray-300
+            rounded-lg
+            p-5
+          "
+        >
+
+          <h2 className="text-xl font-semibold">
+            Total Expenses
+          </h2>
+
+          <p
+            className="
+              text-2xl
+              font-bold
+              text-red-500
+              mt-2
+            "
+          >
+            ₹{totalExpenses}
+          </p>
+
+          {/* PREMIUM BUTTON */}
+
+          {totalExpenses > 10000 && (
+            <button
+              className="
+                mt-4
+                bg-yellow-500
+                hover:bg-yellow-600
+                text-white
+                px-5
+                py-2
+                rounded
+                font-medium
+              "
+            >
+              Activate Premium
+            </button>
+          )}
+
         </div>
 
-        {/* ======================================
+        {/* =========================
             EXPENSE LIST
-            ====================================== */}
+        ========================= */}
 
         <div className="mt-8">
 
           <h2
             className="
               text-xl
-              font-bold
+              font-semibold
               mb-4
             "
           >
-            Your Expenses
+            Your Daily Expenses
           </h2>
 
-          {/* ==================================
-              LOADING EXPENSES
-              ================================== */}
+          {/* NO EXPENSES */}
 
-          {expenseLoading ? (
-
+          {expenses.length === 0 ? (
             <div
               className="
                 bg-white
+                border
+                border-gray-300
                 rounded-lg
-                shadow
-                p-6
-                flex
-                justify-center
-              "
-            >
-              <div
-                className="
-                  w-8
-                  h-8
-                  border-4
-                  border-gray-300
-                  border-t-blue-500
-                  rounded-full
-                  animate-spin
-                "
-              ></div>
-            </div>
-
-          ) : expenses.length === 0 ? (
-
-            /* ==================================
-               NO EXPENSES
-               ================================== */
-
-            <div
-              className="
-                bg-white
-                rounded-lg
-                shadow
-                p-6
-                text-center
+                p-5
                 text-gray-500
               "
             >
               No expenses added yet.
             </div>
-
           ) : (
 
-            /* ==================================
-               EXPENSES
-               ================================== */
+            /* EXPENSES */
 
             <div className="space-y-3">
 
               {expenses.map((expense) => (
-
                 <div
                   key={expense.id}
                   className="
                     bg-white
+                    border
+                    border-gray-300
                     rounded-lg
-                    shadow
                     p-4
+                    flex
+                    items-center
+                    justify-between
                   "
                 >
 
-                  {editingExpenseId === expense.id ? (
+                  <div>
 
-                    /* ==================================
-                       EDIT MODE
-                       ================================== */
+                    <h3 className="font-semibold">
+                      {expense.description}
+                    </h3>
 
-                    <form
-                      onSubmit={(e) =>
-                        updateExpenseHandler(
-                          e,
-                          expense.id
-                        )
-                      }
-                      className="
-                        grid
-                        grid-cols-1
-                        md:grid-cols-4
-                        gap-3
-                        items-end
-                      "
-                    >
+                    <p className="text-sm text-gray-500">
+                      Category: {expense.category}
+                    </p>
 
-                      {/* Edit Amount */}
+                  </div>
 
-                      <div>
-                        <label
-                          className="
-                            block
-                            text-sm
-                            font-medium
-                            mb-1
-                          "
-                        >
-                          Amount
-                        </label>
-
-                        <input
-                          type="number"
-                          min="1"
-                          step="0.01"
-                          value={editAmount}
-                          onChange={(e) =>
-                            setEditAmount(
-                              e.target.value
-                            )
-                          }
-                          disabled={updatingExpense}
-                          className="
-                            w-full
-                            border
-                            border-gray-300
-                            rounded
-                            px-3
-                            py-2
-                            outline-none
-                            focus:border-blue-500
-                          "
-                        />
-                      </div>
-
-                      {/* Edit Description */}
-
-                      <div>
-                        <label
-                          className="
-                            block
-                            text-sm
-                            font-medium
-                            mb-1
-                          "
-                        >
-                          Description
-                        </label>
-
-                        <input
-                          type="text"
-                          value={editDescription}
-                          onChange={(e) =>
-                            setEditDescription(
-                              e.target.value
-                            )
-                          }
-                          disabled={updatingExpense}
-                          className="
-                            w-full
-                            border
-                            border-gray-300
-                            rounded
-                            px-3
-                            py-2
-                            outline-none
-                            focus:border-blue-500
-                          "
-                        />
-                      </div>
-
-                      {/* Edit Category */}
-
-                      <div>
-                        <label
-                          className="
-                            block
-                            text-sm
-                            font-medium
-                            mb-1
-                          "
-                        >
-                          Category
-                        </label>
-
-                        <select
-                          value={editCategory}
-                          onChange={(e) =>
-                            setEditCategory(
-                              e.target.value
-                            )
-                          }
-                          disabled={updatingExpense}
-                          className="
-                            w-full
-                            border
-                            border-gray-300
-                            rounded
-                            px-3
-                            py-2
-                            outline-none
-                            focus:border-blue-500
-                            bg-white
-                          "
-                        >
-                          <option value="Food">
-                            Food
-                          </option>
-
-                          <option value="Petrol">
-                            Petrol
-                          </option>
-
-                          <option value="Salary">
-                            Salary
-                          </option>
-
-                          <option value="Shopping">
-                            Shopping
-                          </option>
-
-                          <option value="Travel">
-                            Travel
-                          </option>
-
-                          <option value="Entertainment">
-                            Entertainment
-                          </option>
-
-                          <option value="Bills">
-                            Bills
-                          </option>
-
-                          <option value="Other">
-                            Other
-                          </option>
-                        </select>
-                      </div>
-
-                      {/* Submit */}
-
-                      <button
-                        type="submit"
-                        disabled={updatingExpense}
-                        className="
-                          bg-green-500
-                          hover:bg-green-600
-                          text-white
-                          px-4
-                          py-2
-                          rounded
-                          disabled:opacity-50
-                          disabled:cursor-not-allowed
-                        "
-                      >
-                        {updatingExpense
-                          ? "Updating..."
-                          : "Submit"}
-                      </button>
-
-                    </form>
-
-                  ) : (
-
-                    /* ==================================
-                       NORMAL MODE
-                       ================================== */
-
-                    <div
-                      className="
-                        flex
-                        items-center
-                        justify-between
-                        gap-4
-                      "
-                    >
-
-                      {/* Expense Information */}
-
-                      <div>
-
-                        <h3
-                          className="
-                            font-semibold
-                            text-lg
-                          "
-                        >
-                          {expense.description}
-                        </h3>
-
-                        <p
-                          className="
-                            text-sm
-                            text-gray-500
-                          "
-                        >
-                          Category:{" "}
-                          {expense.category}
-                        </p>
-
-                      </div>
-
-                      {/* Amount + Buttons */}
-
-                      <div
-                        className="
-                          flex
-                          items-center
-                          gap-3
-                        "
-                      >
-
-                        <p
-                          className="
-                            font-bold
-                            text-lg
-                          "
-                        >
-                          ₹{expense.amount}
-                        </p>
-
-                        {/* Edit Button */}
-
-                        <button
-                          onClick={() =>
-                            editExpenseHandler(
-                              expense
-                            )
-                          }
-                          className="
-                            bg-yellow-500
-                            hover:bg-yellow-600
-                            text-white
-                            px-4
-                            py-2
-                            rounded
-                            text-sm
-                          "
-                        >
-                          Edit
-                        </button>
-
-                        {/* Delete Button */}
-
-                        <button
-                          onClick={() =>
-                            deleteExpenseHandler(
-                              expense.id
-                            )
-                          }
-                          disabled={
-                            deletingExpenseId ===
-                            expense.id
-                          }
-                          className="
-                            bg-red-500
-                            hover:bg-red-600
-                            text-white
-                            px-4
-                            py-2
-                            rounded
-                            text-sm
-                            disabled:opacity-50
-                            disabled:cursor-not-allowed
-                          "
-                        >
-                          {deletingExpenseId ===
-                          expense.id
-                            ? "Deleting..."
-                            : "Delete"}
-                        </button>
-
-                      </div>
-
-                    </div>
-
-                  )}
+                  <p
+                    className="
+                      text-lg
+                      font-semibold
+                      text-red-500
+                    "
+                  >
+                    ₹{expense.amount}
+                  </p>
 
                 </div>
-
               ))}
 
             </div>
-
           )}
 
         </div>
