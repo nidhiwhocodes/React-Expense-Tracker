@@ -7,13 +7,16 @@ import "./index.css";
 
 import AuthProvider from "./context/AuthProvider";
 import ExpenseProvider from "./context/ExpenseProvider";
+import ThemeProvider from "./context/ThemeProvider";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <BrowserRouter>
       <AuthProvider>
         <ExpenseProvider>
-          <App />
+          <ThemeProvider>
+            <App />
+          </ThemeProvider>
         </ExpenseProvider>
       </AuthProvider>
     </BrowserRouter>

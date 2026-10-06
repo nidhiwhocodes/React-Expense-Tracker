@@ -3,58 +3,44 @@ import { useNavigate } from "react-router-dom";
 
 import useAuth from "../context/useAuth";
 import useExpenses from "../context/useExpenses";
+import useTheme from "../context/useTheme";
 
 const API_KEY = import.meta.env.VITE_FIREBASE_API_KEY;
 
 function Welcome() {
   const navigate = useNavigate();
 
-  // =========================
-  // AUTH REDUCER
-  // =========================
-
+  // Auth context
   const { authState, dispatch: authDispatch } = useAuth();
 
-  // =========================
-  // EXPENSE REDUCER
-  // =========================
+  // Expense context
+  const { expenses, dispatch: expenseDispatch } = useExpenses();
 
-  const {
-    expenses,
-    dispatch: expenseDispatch,
-  } = useExpenses();
+  // Theme context
+  const { themeState, dispatch: themeDispatch } = useTheme();
 
-  // =========================
-  // PROFILE STATES
-  // =========================
-
+  // Profile state
   const [profileComplete, setProfileComplete] = useState(false);
   const [emailVerified, setEmailVerified] = useState(false);
 
+  // Loading states
   const [loading, setLoading] = useState(true);
   const [sendingEmail, setSendingEmail] = useState(false);
 
-  // =========================
-  // EXPENSE FORM STATES
-  // =========================
-
+  // Expense form states
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState("");
 
-  // =========================
-  // GET TOKEN
-  // =========================
+  // Get token from reducer or localStorage
+  const token = authState.token || localStorage.getItem("token");
 
-  const token =
-    authState.token || localStorage.getItem("token");
-
-  // =========================
-  // GET USER PROFILE
-  // =========================
+  // --------------------------------------------------
+  // GET USER DETAILS FROM FIREBASE
+  // --------------------------------------------------
 
   useEffect(() => {
-    const getProfile = async () => {
+    const fetchUserDetails = async () => {
       if (!token) {
         navigate("/login");
         return;
@@ -78,75 +64,58 @@ function Welcome() {
 
         if (!response.ok) {
           throw new Error(
-            data.error?.message ||
-              "Unable to fetch user details"
+            data.error?.message || "Unable to fetch user details"
           );
         }
 
         const user = data.users?.[0];
 
-        // Store user ID in Auth Reducer
-        if (user?.localId) {
-          authDispatch({
-            type: "LOGIN",
-            payload: {
-              token: token,
-              userId: user.localId,
-            },
-          });
+        if (!user) {
+          throw new Error("User details not found");
         }
 
         // Check profile completion
-        //
-        // Change these fields according to the fields
-        // you save while completing the profile.
-        if (user?.displayName && user?.photoUrl) {
+        if (user.displayName && user.photoUrl) {
           setProfileComplete(true);
         } else {
           setProfileComplete(false);
         }
 
-        // Check email verification
-        setEmailVerified(user?.emailVerified === true);
-
+        // Check email verification directly from Firebase
+        setEmailVerified(user.emailVerified || false);
       } catch (error) {
-        console.error("Profile error:", error);
+        console.error("User details error:", error);
 
-        if (
-          error.message === "INVALID_ID_TOKEN" ||
-          error.message === "USER_NOT_FOUND"
-        ) {
-          localStorage.removeItem("token");
-          localStorage.removeItem("email");
+        // Token may be expired/invalid
+        localStorage.removeItem("token");
+        localStorage.removeItem("email");
 
-          authDispatch({
-            type: "LOGOUT",
-          });
+        authDispatch({
+          type: "LOGOUT",
+        });
 
-          navigate("/login");
-        }
+        navigate("/login");
       } finally {
         setLoading(false);
       }
     };
 
-    getProfile();
+    fetchUserDetails();
   }, [token, navigate, authDispatch]);
 
-  // =========================
-  // SEND VERIFICATION EMAIL
-  // =========================
+  // --------------------------------------------------
+  // VERIFY EMAIL
+  // --------------------------------------------------
 
   const verifyEmailHandler = async () => {
     if (!token) {
-      alert("Please login again.");
       navigate("/login");
       return;
     }
 
-    try {
-      setSendingEmail(true);
+    setSendingEmail(true);
 
+    try {
       const response = await fetch(
         `https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${API_KEY}`,
         {
@@ -165,95 +134,55 @@ function Welcome() {
 
       if (!response.ok) {
         throw new Error(
-          data.error?.message ||
-            "Unable to send verification email"
+          data.error?.message || "Unable to send verification email"
         );
       }
 
-      alert(
-        `Verification email sent to ${data.email}. Please check your email and click the verification link.`
-      );
+      alert("Verification email sent successfully!");
     } catch (error) {
-      console.error("Verification error:", error);
-
-      switch (error.message) {
-        case "INVALID_ID_TOKEN":
-          alert(
-            "Your login session has expired. Please login again."
-          );
-
-          localStorage.removeItem("token");
-          localStorage.removeItem("email");
-
-          authDispatch({
-            type: "LOGOUT",
-          });
-
-          navigate("/login");
-
-          break;
-
-        case "USER_NOT_FOUND":
-          alert("User account not found. Please login again.");
-
-          localStorage.removeItem("token");
-          localStorage.removeItem("email");
-
-          authDispatch({
-            type: "LOGOUT",
-          });
-
-          navigate("/login");
-
-          break;
-
-        default:
-          alert(
-            "Unable to send verification email. Please try again."
-          );
-      }
+      console.error("Verification email error:", error);
+      alert(error.message);
     } finally {
       setSendingEmail(false);
     }
   };
 
-  // =========================
+  // --------------------------------------------------
   // LOGOUT
-  // =========================
+  // --------------------------------------------------
 
   const logoutHandler = () => {
-    // Remove token
     localStorage.removeItem("token");
-
-    // Remove email
     localStorage.removeItem("email");
 
-    // Clear Auth Reducer
     authDispatch({
       type: "LOGOUT",
     });
 
-    // Clear Expense Reducer
     expenseDispatch({
       type: "CLEAR_EXPENSES",
     });
 
-    // Redirect to login
     navigate("/login");
   };
 
-  // =========================
+  // --------------------------------------------------
   // ADD EXPENSE
-  // =========================
+  // --------------------------------------------------
 
   const addExpenseHandler = (e) => {
     e.preventDefault();
 
+    if (!amount || !description || !category) {
+      alert("Please fill all expense fields.");
+      return;
+    }
+
     const newExpense = {
       id: Date.now(),
       amount: Number(amount),
-      description: description,
-      category: category,
+      description,
+      category,
     };
 
     expenseDispatch({
@@ -267,275 +196,253 @@ function Welcome() {
     setCategory("");
   };
 
-  // =========================
-  // CALCULATE TOTAL EXPENSE
-  // =========================
+  // --------------------------------------------------
+  // TOTAL EXPENSE
+  // --------------------------------------------------
 
   const totalExpenses = expenses.reduce(
-    (total, expense) => {
-      return total + Number(expense.amount);
-    },
+    (total, expense) => total + Number(expense.amount),
     0
   );
 
-  // =========================
+  // --------------------------------------------------
+  // DOWNLOAD EXPENSES AS CSV
+  // --------------------------------------------------
+
+  const downloadExpensesHandler = () => {
+    if (expenses.length === 0) {
+      alert("No expenses available to download.");
+      return;
+    }
+
+    const headers = ["Amount", "Description", "Category"];
+
+    const rows = expenses.map((expense) => [
+      expense.amount,
+      expense.description,
+      expense.category,
+    ]);
+
+    const csvContent = [
+      headers.join(","),
+      ...rows.map((row) =>
+        row
+          .map((value) => `"${String(value).replace(/"/g, '""')}"`)
+          .join(",")
+      ),
+    ].join("\n");
+
+    const blob = new Blob([csvContent], {
+      type: "text/csv;charset=utf-8;",
+    });
+
+    const url = URL.createObjectURL(blob);
+
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = "my-expenses.csv";
+
+    document.body.appendChild(link);
+
+    link.click();
+
+    document.body.removeChild(link);
+
+    URL.revokeObjectURL(url);
+  };
+
+  // --------------------------------------------------
   // LOADING SCREEN
-  // =========================
+  // --------------------------------------------------
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-lg font-medium">
-          Loading...
-        </p>
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <p className="text-lg font-medium">Loading...</p>
       </div>
     );
   }
 
-  // =========================
-  // MAIN UI
-  // =========================
+  // --------------------------------------------------
+  // UI
+  // --------------------------------------------------
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div
+      className={`min-h-screen transition-colors duration-300 ${
+        themeState.isDark
+          ? "bg-gray-900 text-white"
+          : "bg-gray-50 text-gray-900"
+      }`}
+    >
+      {/* ================= HEADER ================= */}
 
-      {/* =========================
-          TOP BAR
-      ========================= */}
-
-      <div
-        className="
-          min-h-15
-          bg-white
-          border-b
-          border-gray-300
-          flex
-          items-center
-          justify-between
-          px-6
-          py-3
-          gap-4
-        "
+      <header
+        className={`border-b ${
+          themeState.isDark
+            ? "bg-gray-800 border-gray-700"
+            : "bg-white border-gray-200"
+        }`}
       >
+        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+          <h1 className="text-2xl font-bold">
+            Expense Tracker
+          </h1>
 
-        {/* LEFT SIDE */}
+          <div className="flex items-center gap-3">
+            {/* Theme Toggle */}
 
-        <p className="text-sm italic text-gray-600">
-          Winners never quit, Quitters never win.
-        </p>
-
-        {/* RIGHT SIDE */}
-
-        <div className="flex items-center gap-3">
-
-          {/* PROFILE INCOMPLETE */}
-
-          {!profileComplete && (
-            <div
-              className="
-                bg-red-50
-                border
-                border-red-200
-                rounded-lg
-                px-4
-                py-2
-                text-sm
-              "
-            >
-              <span className="italic">
-                Your Profile is{" "}
-              </span>
-
-              <span className="font-bold">
-                incomplete.
-              </span>
-
+            {themeState.isPremium && (
               <button
                 onClick={() =>
-                  navigate("/contact-details")
+                  themeDispatch({
+                    type: "TOGGLE_THEME",
+                  })
                 }
-                className="
-                  text-blue-600
-                  underline
-                  ml-2
-                  hover:text-blue-800
-                "
+                className="bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded transition"
               >
-                Complete now
+                {themeState.isDark
+                  ? "☀️ Light Mode"
+                  : "🌙 Dark Mode"}
+              </button>
+            )}
+
+            {/* Logout */}
+
+            <button
+              onClick={logoutHandler}
+              className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded transition"
+            >
+              Logout
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* ================= MAIN ================= */}
+
+      <main className="max-w-6xl mx-auto px-6 py-8">
+        {/* ================= PROFILE MESSAGE ================= */}
+
+        {!profileComplete && (
+          <div
+            className={`mb-6 p-4 rounded-lg border ${
+              themeState.isDark
+                ? "bg-yellow-900/30 border-yellow-700"
+                : "bg-yellow-50 border-yellow-300"
+            }`}
+          >
+            <p className="font-medium">
+              Your Profile is incomplete.
+            </p>
+
+            <p className="text-sm mt-1">
+              A complete Profile has higher chance of landing a
+              job.
+            </p>
+
+            <button
+              onClick={() => navigate("/contact-details")}
+              className="mt-3 text-blue-500 hover:underline font-medium"
+            >
+              Complete now
+            </button>
+          </div>
+        )}
+
+        {/* ================= WELCOME ================= */}
+
+        <div className="mb-8">
+          <h2 className="text-3xl font-bold">
+            Welcome to Expense Tracker
+          </h2>
+
+          <p
+            className={`mt-2 ${
+              themeState.isDark
+                ? "text-gray-300"
+                : "text-gray-600"
+            }`}
+          >
+            Manage your daily expenses easily.
+          </p>
+        </div>
+
+        {/* ================= EMAIL VERIFICATION ================= */}
+
+        <div
+          className={`mb-8 p-5 rounded-lg border ${
+            themeState.isDark
+              ? "bg-gray-800 border-gray-700"
+              : "bg-white border-gray-300"
+          }`}
+        >
+          <h3 className="text-lg font-semibold">
+            Email Verification
+          </h3>
+
+          {emailVerified ? (
+            <p className="mt-2 text-green-500 font-medium">
+              ✓ Your email is verified.
+            </p>
+          ) : (
+            <div>
+              <p className="mt-2 text-red-500">
+                Your email is not verified.
+              </p>
+
+              <button
+                onClick={verifyEmailHandler}
+                disabled={sendingEmail}
+                className="mt-3 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400 text-white px-4 py-2 rounded transition"
+              >
+                {sendingEmail
+                  ? "Sending..."
+                  : "Verify Email ID"}
               </button>
             </div>
           )}
-
-          {/* VERIFY EMAIL */}
-
-          {!emailVerified && (
-            <button
-              onClick={verifyEmailHandler}
-              disabled={sendingEmail}
-              className="
-                bg-blue-500
-                hover:bg-blue-600
-                text-white
-                px-4
-                py-2
-                rounded
-                text-sm
-                disabled:opacity-50
-              "
-            >
-              {sendingEmail
-                ? "Sending..."
-                : "Verify Email ID"}
-            </button>
-          )}
-
-          {/* EMAIL VERIFIED */}
-
-          {emailVerified && (
-            <div
-              className="
-                bg-green-50
-                text-green-700
-                border
-                border-green-200
-                px-4
-                py-2
-                rounded
-                text-sm
-              "
-            >
-              Email Verified ✓
-            </div>
-          )}
-
-          {/* LOGOUT */}
-
-          <button
-            onClick={logoutHandler}
-            className="
-              bg-red-500
-              hover:bg-red-600
-              text-white
-              px-4
-              py-2
-              rounded
-              text-sm
-            "
-          >
-            Logout
-          </button>
-
         </div>
-      </div>
 
-      {/* =========================
-          MAIN CONTENT
-      ========================= */}
+        {/* ================= EXPENSE FORM ================= */}
 
-      <div
-        className="
-          max-w-6xl
-          mx-auto
-          px-6
-          py-10
-        "
-      >
-
-        {/* WELCOME */}
-
-        <h1
-          className="
-            text-3xl
-            font-bold
-            text-gray-800
-            mb-8
-          "
+        <div
+          className={`border rounded-lg p-6 shadow-sm ${
+            themeState.isDark
+              ? "bg-gray-800 border-gray-700"
+              : "bg-white border-gray-300"
+          }`}
         >
-          Welcome to Expense Tracker
-        </h1>
-
-        {/* =========================
-            ADD EXPENSE FORM
-        ========================= */}
-
-        <form
-          onSubmit={addExpenseHandler}
-          className="
-            bg-white
-            border
-            border-gray-300
-            rounded-lg
-            p-6
-            shadow-sm
-          "
-        >
-
-          <h2
-            className="
-              text-xl
-              font-semibold
-              mb-5
-            "
-          >
+          <h2 className="text-xl font-semibold mb-5">
             Add Daily Expense
           </h2>
 
-          <div
-            className="
-              grid
-              grid-cols-1
-              md:grid-cols-3
-              gap-4
-            "
-          >
+          <form onSubmit={addExpenseHandler}>
+            {/* Amount */}
 
-            {/* MONEY SPENT */}
-
-            <div>
-              <label
-                className="
-                  block
-                  text-sm
-                  font-medium
-                  mb-2
-                "
-              >
-                Money Spent
+            <div className="mb-4">
+              <label className="block text-sm font-medium mb-2">
+                Amount
               </label>
 
               <input
                 type="number"
-                min="1"
                 placeholder="Enter amount"
                 value={amount}
-                onChange={(e) =>
-                  setAmount(e.target.value)
-                }
-                required
-                className="
-                  w-full
-                  border
-                  border-gray-300
-                  rounded
-                  px-3
-                  py-2
-                  outline-none
-                  focus:border-blue-500
-                "
+                onChange={(e) => setAmount(e.target.value)}
+                className={`w-full px-4 py-2 rounded border outline-none ${
+                  themeState.isDark
+                    ? "bg-gray-700 border-gray-600 text-white"
+                    : "bg-white border-gray-300 text-gray-900"
+                }`}
               />
             </div>
 
-            {/* DESCRIPTION */}
+            {/* Description */}
 
-            <div>
-              <label
-                className="
-                  block
-                  text-sm
-                  font-medium
-                  mb-2
-                "
-              >
+            <div className="mb-4">
+              <label className="block text-sm font-medium mb-2">
                 Description
               </label>
 
@@ -546,246 +453,184 @@ function Welcome() {
                 onChange={(e) =>
                   setDescription(e.target.value)
                 }
-                required
-                className="
-                  w-full
-                  border
-                  border-gray-300
-                  rounded
-                  px-3
-                  py-2
-                  outline-none
-                  focus:border-blue-500
-                "
+                className={`w-full px-4 py-2 rounded border outline-none ${
+                  themeState.isDark
+                    ? "bg-gray-700 border-gray-600 text-white"
+                    : "bg-white border-gray-300 text-gray-900"
+                }`}
               />
             </div>
 
-            {/* CATEGORY */}
+            {/* Category */}
 
-            <div>
-              <label
-                className="
-                  block
-                  text-sm
-                  font-medium
-                  mb-2
-                "
-              >
+            <div className="mb-5">
+              <label className="block text-sm font-medium mb-2">
                 Category
               </label>
 
               <select
                 value={category}
-                onChange={(e) =>
-                  setCategory(e.target.value)
-                }
-                required
-                className="
-                  w-full
-                  border
-                  border-gray-300
-                  rounded
-                  px-3
-                  py-2
-                  bg-white
-                  outline-none
-                  focus:border-blue-500
-                "
+                onChange={(e) => setCategory(e.target.value)}
+                className={`w-full px-4 py-2 rounded border outline-none ${
+                  themeState.isDark
+                    ? "bg-gray-700 border-gray-600 text-white"
+                    : "bg-white border-gray-300 text-gray-900"
+                }`}
               >
                 <option value="">
-                  Select category
+                  Select Category
                 </option>
 
-                <option value="Food">
-                  Food
-                </option>
+                <option value="Food">Food</option>
 
-                <option value="Petrol">
-                  Petrol
-                </option>
+                <option value="Travel">Travel</option>
 
-                <option value="Salary">
-                  Salary
-                </option>
+                <option value="Shopping">Shopping</option>
 
-                <option value="Shopping">
-                  Shopping
-                </option>
-
-                <option value="Travel">
-                  Travel
-                </option>
-
-                <option value="Bills">
-                  Bills
-                </option>
+                <option value="Bills">Bills</option>
 
                 <option value="Entertainment">
                   Entertainment
                 </option>
 
-                <option value="Other">
-                  Other
-                </option>
+                <option value="Other">Other</option>
               </select>
             </div>
 
-          </div>
+            <button
+              type="submit"
+              className="bg-blue-500 hover:bg-blue-600 text-white px-5 py-2 rounded transition"
+            >
+              Add Expense
+            </button>
+          </form>
+        </div>
 
-          {/* ADD EXPENSE BUTTON */}
-
-          <button
-            type="submit"
-            className="
-              mt-5
-              bg-blue-500
-              hover:bg-blue-600
-              text-white
-              px-5
-              py-2
-              rounded
-            "
-          >
-            Add Expense
-          </button>
-
-        </form>
-
-        {/* =========================
-            TOTAL EXPENSE
-        ========================= */}
+        {/* ================= TOTAL EXPENSE ================= */}
 
         <div
-          className="
-            mt-8
-            bg-white
-            border
-            border-gray-300
-            rounded-lg
-            p-5
-          "
+          className={`mt-8 border rounded-lg p-5 ${
+            themeState.isDark
+              ? "bg-gray-800 border-gray-700"
+              : "bg-white border-gray-300"
+          }`}
         >
-
           <h2 className="text-xl font-semibold">
             Total Expenses
           </h2>
 
-          <p
-            className="
-              text-2xl
-              font-bold
-              text-red-500
-              mt-2
-            "
-          >
+          <p className="text-2xl font-bold text-red-500 mt-2">
             ₹{totalExpenses}
           </p>
 
           {/* PREMIUM BUTTON */}
 
-          {totalExpenses > 10000 && (
-            <button
-              className="
-                mt-4
-                bg-yellow-500
-                hover:bg-yellow-600
-                text-white
-                px-5
-                py-2
-                rounded
-                font-medium
-              "
-            >
-              Activate Premium
-            </button>
-          )}
+          {totalExpenses > 10000 &&
+            !themeState.isPremium && (
+              <button
+                onClick={() =>
+                  themeDispatch({
+                    type: "ACTIVATE_PREMIUM",
+                  })
+                }
+                className="mt-4 bg-yellow-500 hover:bg-yellow-600 text-white px-5 py-2 rounded font-medium transition"
+              >
+                Activate Premium
+              </button>
+            )}
 
+          {/* PREMIUM FEATURES */}
+
+          {themeState.isPremium && (
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              {/* Theme Toggle */}
+
+              <button
+                onClick={() =>
+                  themeDispatch({
+                    type: "TOGGLE_THEME",
+                  })
+                }
+                className="bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded transition"
+              >
+                {themeState.isDark
+                  ? "☀️ Light Mode"
+                  : "🌙 Dark Mode"}
+              </button>
+
+              {/* Download CSV */}
+
+              <button
+                onClick={downloadExpensesHandler}
+                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded transition"
+              >
+                Download Expenses
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* =========================
-            EXPENSE LIST
-        ========================= */}
+        {/* ================= EXPENSE LIST ================= */}
 
         <div className="mt-8">
-
-          <h2
-            className="
-              text-xl
-              font-semibold
-              mb-4
-            "
-          >
-            Your Daily Expenses
+          <h2 className="text-xl font-semibold mb-4">
+            Your Expenses
           </h2>
-
-          {/* NO EXPENSES */}
 
           {expenses.length === 0 ? (
             <div
-              className="
-                bg-white
-                border
-                border-gray-300
-                rounded-lg
-                p-5
-                text-gray-500
-              "
+              className={`p-5 rounded-lg border ${
+                themeState.isDark
+                  ? "bg-gray-800 border-gray-700"
+                  : "bg-white border-gray-300"
+              }`}
             >
-              No expenses added yet.
+              <p
+                className={
+                  themeState.isDark
+                    ? "text-gray-400"
+                    : "text-gray-500"
+                }
+              >
+                No expenses added yet.
+              </p>
             </div>
           ) : (
-
-            /* EXPENSES */
-
             <div className="space-y-3">
-
               {expenses.map((expense) => (
                 <div
                   key={expense.id}
-                  className="
-                    bg-white
-                    border
-                    border-gray-300
-                    rounded-lg
-                    p-4
-                    flex
-                    items-center
-                    justify-between
-                  "
+                  className={`border rounded-lg p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 ${
+                    themeState.isDark
+                      ? "bg-gray-800 border-gray-700"
+                      : "bg-white border-gray-300"
+                  }`}
                 >
-
                   <div>
-
                     <h3 className="font-semibold">
                       {expense.description}
                     </h3>
 
-                    <p className="text-sm text-gray-500">
+                    <p
+                      className={`text-sm ${
+                        themeState.isDark
+                          ? "text-gray-400"
+                          : "text-gray-500"
+                      }`}
+                    >
                       Category: {expense.category}
                     </p>
-
                   </div>
 
-                  <p
-                    className="
-                      text-lg
-                      font-semibold
-                      text-red-500
-                    "
-                  >
+                  <p className="font-bold text-lg text-green-500">
                     ₹{expense.amount}
                   </p>
-
                 </div>
               ))}
-
             </div>
           )}
-
         </div>
-
-      </div>
-
+      </main>
     </div>
   );
 }
